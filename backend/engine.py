@@ -154,6 +154,12 @@ def _frames_db(x: np.ndarray, win_ms: float = 20.0, hop_ms: float = 10.0) -> np.
     return 10 * np.log10(np.mean(fr * fr, axis=1) + 1e-12)
 
 
+# 注册时长口径（录制与文件注册共用，前后端与服务端必须一致）：
+# 短于下限语音不足，长于上限不利于同一人稳定发声，也让质检口径分叉。
+ENROLL_DUR_MIN = 2.5
+ENROLL_DUR_MAX = 6.5
+
+
 def vad_report(x: np.ndarray) -> dict:
     """轻量能量 VAD：20ms 窗/10ms 帧移，噪声底用 20 分位近似。
     返回时长、语音占比、峰值、削波率与估计 SNR，供前端展示与注册门禁。"""
@@ -171,14 +177,16 @@ def vad_report(x: np.ndarray) -> dict:
     peak = float(np.abs(x).max())
     clip = float(np.mean(np.abs(x) > 0.985))
     snr = float(np.percentile(edb[speech], 80) - floor) if speech.any() else 0.0
-    ok = (2.5 <= dur <= 6.5) and ratio >= 0.08 and peak > 0.02 and clip < 0.02
+    ok = (ENROLL_DUR_MIN <= dur <= ENROLL_DUR_MAX) and ratio >= 0.08 and peak > 0.02 and clip < 0.02
     reason = ""
     if not ok:
-        if not (2.5 <= dur <= 6.5):
-            if dur < 2.5:
-                reason = f"时长 {dur:.1f}s 不足 2.5s（还差 {2.5 - dur:.1f}s）"
+        if not (ENROLL_DUR_MIN <= dur <= ENROLL_DUR_MAX):
+            if dur < ENROLL_DUR_MIN:
+                reason = (f"时长 {dur:.1f}s 不足 {ENROLL_DUR_MIN:.1f}s"
+                          f"（还差 {ENROLL_DUR_MIN - dur:.1f}s）")
             else:
-                reason = f"时长 {dur:.1f}s 超过 6.5s（多 {dur - 6.5:.1f}s）"
+                reason = (f"时长 {dur:.1f}s 超过 {ENROLL_DUR_MAX:.1f}s"
+                          f"（多 {dur - ENROLL_DUR_MAX:.1f}s）")
         elif peak <= 0.02:
             reason = "几乎无声"
         elif ratio < 0.08:

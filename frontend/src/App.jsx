@@ -383,11 +383,11 @@ export default function App() {
     destRef.current = "hold";
     const buf = concatFloat32(enrollBufRef.current);
     const secs = buf.length / SR;
-    if (secs < 2.5) {
+    if (secs < 2.5 || secs > 6.5) {
       setPhase("error");
       setNotice({
         kind: "error",
-        text: `注册音频仅 ${secs.toFixed(1)}s，不足 2.5s（还差 ${(2.5 - secs).toFixed(1)}s），请重录`,
+        text: `注册音频 ${secs.toFixed(1)}s，需在 2.5–6.5s 之间，请重录`,
       });
       return;
     }
@@ -418,9 +418,9 @@ export default function App() {
       // 前端解码任意格式，统一重采样成 16k 单声道，与服务端录制路径完全一致
       const buf = await eng.decodeTo16k(await f.arrayBuffer());
       const secs = buf.length / SR;
-      if (secs < 2.5 || secs > 8.0) {
+      if (secs < 2.5 || secs > 6.5) {
         setPhase("error");
-        setNotice({ kind: "error", text: `文件时长 ${secs.toFixed(1)}s，需在 2.5–8s 之间` });
+        setNotice({ kind: "error", text: `文件时长 ${secs.toFixed(1)}s，需在 2.5–6.5s 之间` });
         return;
       }
       clearWave(waveIn.current);

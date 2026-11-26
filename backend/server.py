@@ -57,6 +57,7 @@ from campp import observe as campp_observe
 from engine import (BYPASS_DWELL_MS, BYPASS_ENTER_MS, BYPASS_EXIT_MS,
                     BYPASS_FORCE_MS, BYPASS_LEVEL_MATCH, BYPASS_PAUSE_ONLY,
                     CAPTURE, CAPTURE_DIR, CAPTURE_MAX_S, HF_SHELF_DB,
+                    ENROLL_DUR_MAX, ENROLL_DUR_MIN,
                     ENROLL_ID_COS_MIN, ENROLL_PITCH_SHIFT_MAX_ST,
                     PAUSE_ATT_MS, PAUSE_DB, PAUSE_REL_MS, PAUSE_STEP,
                     PD_FLOOR_DB, POST_DENOISE, SKIP_ABS_DB, SKIP_HOLD_MS, SKIP_SILENT,
@@ -69,7 +70,8 @@ MODEL_DIR = os.path.join(APP_DIR, "models", "x16_stream")
 DEMO_DIR = os.path.join(APP_DIR, "backend", "assets", "demo")
 FRONT_DIR = os.path.join(APP_DIR, "frontend", "dist")
 SR = 16000
-MAX_ENROLL_S = 8.0
+# 录制注册上限：与 vad_report 的时长闸门共用同一口径（engine.ENROLL_DUR_MAX）
+MAX_ENROLL_S = ENROLL_DUR_MAX
 # 注册音频留档（默认开启）：16k 单声道 PCM_16 WAV + 同名 .json 元数据。
 # 目录不进仓库（app/.gitignore 已忽略）；VF_ENROLL_SAVE=0 可关闭，VF_ENROLL_DIR 可改目录。
 ENROLL_SAVE = os.environ.get("VF_ENROLL_SAVE", "1").strip().lower() not in (
@@ -78,7 +80,7 @@ ENROLL_DIR = os.environ.get(
     "VF_ENROLL_DIR",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "enrollments"))
 # 文件式注册：注册音频上限（秒）与批量处理文件上限（秒）；声纹嵌入持久化目录
-MAX_ENROLL_FILE_S = float(os.environ.get("VF_MAX_ENROLL_FILE_S", 30.0))
+MAX_ENROLL_FILE_S = float(os.environ.get("VF_MAX_ENROLL_FILE_S", ENROLL_DUR_MAX))
 MAX_PROCESS_S = float(os.environ.get("VF_MAX_PROCESS_S", 1800.0))
 REG_DIR = os.path.join(ENROLL_DIR, "registrations")
 # 绑核开关（默认关，行为与之前完全一致）：
@@ -228,13 +230,26 @@ def _list_registrations(limit: int = 50) -> list[dict]:
     return out[:limit]
 
 
+class DemoAssetMissing(RuntimeError):
+    """演示素材缺失（不进仓库），由调用方转成 400。"""
+
+
 def _demo_reg():
-    """demo 注册音频的嵌入（进程内缓存），供未带 enroll_id 的处理请求兜底。"""
+    """demo 注册音频的嵌入（进程内缓存），供未带 enroll_id 的处理请求兜底。
+
+    演示素材不进仓库（.gitignore），新克隆里可能不存在；缺素材时抛
+    DemoAssetMissing 由调用方转 400，不能变成 500。
+    """
     if STATE.get("demo_reg") is None:
         p = os.path.join(DEMO_DIR, "enroll", "demo_01.wav")
-        with wave.open(p, "rb") as w:
-            x = np.frombuffer(w.readframes(w.getnframes()),
-                              np.int16).astype(np.float32) / 32767.0
+        try:
+            with wave.open(p, "rb") as w:
+                x = np.frombuffer(w.readframes(w.getnframes()),
+                                  np.int16).astype(np.float32) / 32767.0
+        except (FileNotFoundError, wave.Error) as e:
+            raise DemoAssetMissing(
+                "演示素材缺失；请指定 enroll_id，或先运行 "
+                "backend/tools/make_demo_assets.py 生成 demo 素材") from e
         E, g, _ = STATE["enroller"].encode(x)
         STATE["demo_reg"] = (E, g)
     return STATE["demo_reg"]
@@ -547,7 +562,7 @@ async def enroll_file(file: UploadFile = File(...), name: str = Form("")):
     dur = len(wav) / SR
     if dur > MAX_ENROLL_FILE_S:
         return JSONResponse({"ok": False,
-                             "error": f"注册音频过长（{dur:.1f}s，上限 {MAX_ENROLL_FILE_S:.0f}s）"},
+                             "error": f"注册音频过长（{dur:.1f}s，上限 {MAX_ENROLL_FILE_S:.1f}s）"},
                             status_code=422)
     saved = _save_enroll(wav, {
         "session_id": "file-" + os.urandom(3).hex(), "seq": 1, "source": "file",
@@ -649,7 +664,7 @@ def _process_stream(x: np.ndarray, E: np.ndarray, g: np.ndarray, fmt: str):
                else np.zeros(pad, np.float32).tobytes())
     sm = sess.summary()
     log.info("process file done: audio_s=%.1f compute_s=%.1f rtf=%.3f elapsed_s=%.1f",
-             sm.get("audio_s", 0.0), sm.get("compute_s", 0.0),
+             sm.get("audio_s", 0.0), sm.get("compute_total_ms", 0.0) / 1000.0,
              sm.get("rtf", 0.0), time.perf_counter() - t0)
 
 
@@ -678,7 +693,10 @@ async def process_file(file: UploadFile = File(...), enroll_id: str = Form(""),
             return JSONResponse({"error": f"注册不存在: {enroll_id}"}, status_code=404)
         E, g, meta = reg
     else:
-        E, g = _demo_reg()
+        try:
+            E, g = _demo_reg()
+        except DemoAssetMissing as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
         meta = {"enroll_id": "", "source": "demo"}
     x = np.ascontiguousarray(x, np.float32)
     fname = re.sub(r"[^\w.\-]+", "_", os.path.basename(file.filename or "audio")) + ""
