@@ -192,7 +192,9 @@ class FocusPipeline:
                 elif sess.should_bypass(waited_ms, pause=sess.cur_block_pause):
                     outs = sess.bypass(x16, True)
                 else:
-                    outs = sess.push(x16)
+                    # pause_fed=True：L188 已喂过停顿时钟，避免 push 内部二次推进
+                    # （否则 g_frames 时间轴以 2 倍速超前于输出样本 s0）
+                    outs = sess.push(x16, True)
             except Exception as e:  # noqa: BLE001
                 # 单块异常不能让整条流断掉：清空待处理块，继续跑
                 self.counts["chunks"] += 1
