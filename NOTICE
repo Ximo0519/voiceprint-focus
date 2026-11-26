@@ -237,7 +237,7 @@ SpeakerBeam-SS, arXiv:2407.01857”，未给自身仓库地址）；LICENSE 署�
 10. 模型权重（单独许可）
 ------------------------
 文件：`step.onnx`（68,705,324 bytes ≈ 65.52 MiB）、`enroll.onnx`（1,523,328 bytes ≈ 1.45 MiB）
-许可：见同目录 `LICENSE-WEIGHTS`（Research Use Only）。
+许可：见随权重包发布的 `LICENSE-WEIGHTS`（Research Use Only）。
 说明：权重为上述上游组件与数据的训练产物；本 NOTICE 的上游义务同样适用于权重的再分发。
 
 ---
