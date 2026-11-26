@@ -582,7 +582,7 @@ async def enroll_file(file: UploadFile = File(...), name: str = Form("")):
         return JSONResponse({"ok": False, "code": "vad",
                              "message": f"注册音频质检未通过：{q['reason']}",
                              "vad": q, "enroll_saved": saved_name}, status_code=422)
-    qc = enroll_qc(wav, enroller)
+    qc = await asyncio.to_thread(enroll_qc, wav, enroller)
     if not qc["ok"]:
         _tag_enroll(saved, outcome="qc_reject", vad=q, enroll_qc=qc)
         _fire_campp(wav, campp_ctx, outcome="qc_reject",
@@ -590,7 +590,7 @@ async def enroll_file(file: UploadFile = File(...), name: str = Form("")):
         return JSONResponse({"ok": False, "code": qc["code"], "message": qc["hint"],
                              "hint": qc["hint"], "vad": q, "enroll_qc": qc,
                              "enroll_saved": saved_name}, status_code=422)
-    E, g, enc_ms = enroller.encode(wav)
+    E, g, enc_ms = await asyncio.to_thread(enroller.encode, wav)
     rid = _save_registration(E, g, {
         "name": name[:64], "source": "file", "filename": (file.filename or "")[:128],
         "duration_s": round(dur, 2), "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -820,6 +820,15 @@ async def ws_endpoint(ws: WebSocket):
             enqueue_out({"__audio": True, "msg": build_stat(st),
                          "bytes": out.astype(np.float32).tobytes(), "out_len": len(out)})
 
+    # 所有下行文本共用一把锁：sender 的「stat 文本 + 音频二进制」必须成对原子发送，
+    # 否则 pong/config/error 插进两者中间会让客户端把文本与音频错配；ASGI 也不保证
+    # 同一连接上的并发 send 安全。
+    send_lock = asyncio.Lock()
+
+    async def send_json(obj):
+        async with send_lock:
+            await ws.send_text(json.dumps(obj, ensure_ascii=False))
+
     async def sender():
         """唯一的发送者：与推理完全解耦，客户端读得慢只会导致丢帧，不会反压计算。"""
         while True:
@@ -832,12 +841,27 @@ async def ws_endpoint(ws: WebSocket):
             item = outq.popleft()
             try:
                 if item.get("__audio"):
-                    await ws.send_text(json.dumps(item["msg"], ensure_ascii=False))
-                    await ws.send_bytes(item["bytes"])
+                    async with send_lock:
+                        await ws.send_text(json.dumps(item["msg"], ensure_ascii=False))
+                        await ws.send_bytes(item["bytes"])
                 else:
-                    await ws.send_text(json.dumps(item, ensure_ascii=False))
+                    async with send_lock:
+                        await ws.send_text(json.dumps(item, ensure_ascii=False))
             except Exception:  # noqa: BLE001
                 return
+
+    async def cancel_worker():
+        """重复 start / 重新注册前先停掉旧消费者，避免两个 worker 争抢同一 inbound。"""
+        nonlocal worker_task
+        if worker_task is not None and not worker_task.done():
+            worker_task.cancel()
+            try:
+                await worker_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:  # noqa: BLE001
+                pass
+        worker_task = None
 
     async def worker(sess: StreamSession):
         """推理消费者：只在独立线程里跑模型，事件循环始终能继续收包。"""
@@ -901,9 +925,8 @@ async def ws_endpoint(ws: WebSocket):
                     total = sum(len(a) for a in enroll_buf) / SR
                     if total > MAX_ENROLL_S:
                         mode = "idle"
-                        await ws.send_text(json.dumps({"type": "error",
-                                                       "message": "注册音频超长，已重置"},
-                                                      ensure_ascii=False))
+                        await send_json({"type": "error",
+                                         "message": "注册音频超长，已重置"})
                 elif mode == "stream" and session is not None:
                     enqueue_in(x, time.perf_counter())
                 continue
@@ -912,30 +935,30 @@ async def ws_endpoint(ws: WebSocket):
             try:
                 req = json.loads(raw)
             except json.JSONDecodeError:
-                await ws.send_text(json.dumps({"type": "error", "message": "非法 JSON"},
-                                              ensure_ascii=False))
+                await send_json({"type": "error", "message": "非法 JSON"})
                 continue
             typ = req.get("type")
 
             if typ == "enroll":
                 enroll_buf = []
                 enroll_source = str(req.get("source") or "mic")[:16]
+                await cancel_worker()
                 session = None
                 mode = "enroll"
-                await ws.send_text(json.dumps({"type": "enroll_started",
-                                               "max_s": MAX_ENROLL_S,
-                                               "source": enroll_source}, ensure_ascii=False))
+                await send_json({"type": "enroll_started",
+                                 "max_s": MAX_ENROLL_S,
+                                 "source": enroll_source})
             elif typ == "start":
                 eid = str(req.get("enroll_id") or "").strip()
                 if eid:
                     # 文件式注册开流：跳过录制缓冲，直接用已持久化的声纹
                     reg = _load_registration(eid)
                     if reg is None:
-                        await ws.send_text(json.dumps(
-                            {"type": "error", "message": f"注册不存在: {eid}"},
-                            ensure_ascii=False))
+                        await send_json(
+                            {"type": "error", "message": f"注册不存在: {eid}"})
                         continue
                     Er, gr, meta = reg
+                    await cancel_worker()
                     session = _new_session(Er, gr)
                     while not inbound.empty():
                         drop_oldest_in()
@@ -953,9 +976,8 @@ async def ws_endpoint(ws: WebSocket):
                     worker_task = asyncio.create_task(worker(session))
                     continue
                 if mode != "enroll" or not enroll_buf:
-                    await ws.send_text(json.dumps({"type": "error",
-                                                   "message": "请先完成声纹注册"},
-                                                  ensure_ascii=False))
+                    await send_json({"type": "error",
+                                     "message": "请先完成声纹注册"})
                     continue
                 wav = np.concatenate(enroll_buf)
                 enroll_seq += 1
@@ -975,30 +997,29 @@ async def ws_endpoint(ws: WebSocket):
                     _fire_campp(wav, campp_ctx, outcome="vad_reject",
                                 vad_ok=False, vad_reason=q["reason"])
                     mode = "idle"
-                    await ws.send_text(json.dumps({"type": "error",
-                                                   "message": f"注册音频质检未通过：{q['reason']}",
-                                                   "code": "vad", "vad": q,
-                                                   "enroll_saved": saved_name},
-                                                  ensure_ascii=False))
+                    await send_json({"type": "error",
+                                     "message": f"注册音频质检未通过：{q['reason']}",
+                                     "code": "vad", "vad": q,
+                                     "enroll_saved": saved_name})
                     continue
-                qc = enroll_qc(wav, enroller)
+                qc = await asyncio.to_thread(enroll_qc, wav, enroller)
                 if not qc["ok"]:
                     _tag_enroll(saved, outcome="qc_reject", vad=q, enroll_qc=qc)
                     _fire_campp(wav, campp_ctx, outcome="qc_reject",
                                 vad_ok=True, enroll_qc_ok=False,
                                 enroll_qc_code=qc["code"])
                     mode = "idle"
-                    await ws.send_text(json.dumps({"type": "error",
-                                                   "message": qc["hint"], "code": qc["code"],
-                                                   "hint": qc["hint"], "vad": q,
-                                                   "enroll_qc": qc,
-                                                   "enroll_saved": saved_name},
-                                                  ensure_ascii=False))
+                    await send_json({"type": "error",
+                                     "message": qc["hint"], "code": qc["code"],
+                                     "hint": qc["hint"], "vad": q,
+                                     "enroll_qc": qc,
+                                     "enroll_saved": saved_name})
                     continue
                 _tag_enroll(saved, outcome="ready", vad=q, enroll_qc=qc)
                 _fire_campp(wav, campp_ctx, outcome="ready",
                             vad_ok=True, enroll_qc_ok=True, enroll_qc_code="")
-                E, g, enc_ms = enroller.encode(wav)
+                E, g, enc_ms = await asyncio.to_thread(enroller.encode, wav)
+                await cancel_worker()
                 session = _new_session(E, g)
                 while not inbound.empty():
                     drop_oldest_in()
@@ -1018,9 +1039,8 @@ async def ws_endpoint(ws: WebSocket):
                 worker_task = asyncio.create_task(worker(session))
             elif typ == "stop":
                 if session is None or mode != "stream":
-                    await ws.send_text(json.dumps({"type": "error",
-                                                   "message": "当前没有进行中的流"},
-                                                  ensure_ascii=False))
+                    await send_json({"type": "error",
+                                     "message": "当前没有进行中的流"})
                     continue
                 mode = "stopping"
                 if carry.size:  # 末尾不足一块的样本也要交给推理，避免丢音
@@ -1029,29 +1049,26 @@ async def ws_endpoint(ws: WebSocket):
                     carry_t = None
                 inbound.put_nowait(None)
             elif typ == "ping":
-                await ws.send_text(json.dumps({"type": "pong", "t": req.get("t")}))
+                await send_json({"type": "pong", "t": req.get("t")})
             elif typ == "config":
                 # 允许在开流前后随时切换：改全局值并应用到所有活跃会话
                 if "post_denoise" not in req:
-                    await ws.send_text(json.dumps({"type": "error",
-                                                   "message": "缺少 post_denoise"},
-                                                  ensure_ascii=False))
+                    await send_json({"type": "error",
+                                     "message": "缺少 post_denoise"})
                     continue
                 v = req["post_denoise"]
                 on = v if isinstance(v, bool) else str(v).strip().lower() in (
                     "1", "true", "on", "yes")
                 r = _set_post_denoise(on)
-                await ws.send_text(json.dumps({"type": "config", **r},
-                                              ensure_ascii=False))
+                await send_json({"type": "config", **r})
             else:
-                await ws.send_text(json.dumps({"type": "error",
-                                               "message": f"未知指令 {typ}"}, ensure_ascii=False))
+                await send_json({"type": "error",
+                                 "message": f"未知指令 {typ}"})
     except WebSocketDisconnect:
         pass
     except Exception as e:  # noqa: BLE001
         try:
-            await ws.send_text(json.dumps({"type": "error", "message": f"服务异常: {e}"},
-                                          ensure_ascii=False))
+            await send_json({"type": "error", "message": f"服务异常: {e}"})
         except Exception:  # noqa: BLE001
             pass
     finally:
