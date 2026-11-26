@@ -14,6 +14,9 @@
 模型为因果 BSRNN + 帧级 TF-Map 条件化，导出为两个 ONNX：`enroll.onnx`（声纹编码）与
 `step.onnx`（32 ms 流式分离）。
 
+实测效果披露（评测口径、样本量、置信区间、失败模式与局限）见
+**[RESULTS.md](RESULTS.md)**。
+
 ## 仓库结构
 
 ```text
