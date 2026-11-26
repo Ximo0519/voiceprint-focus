@@ -21,7 +21,6 @@
 ## 仓库结构
 
 ```text
-app/
 ├── backend/            # FastAPI 服务、流式引擎、STFT/iSTFT、模型定义、ONNX 导出与校验
 │   ├── server.py       # HTTP / WebSocket 服务入口
 │   ├── engine.py       # 流式会话、注册质检、旁路与后处理
@@ -32,6 +31,7 @@ app/
 │   └── tools/          # 演示素材生成、引擎离线校验
 ├── frontend/           # React + Vite 前端
 ├── vmic/               # Windows 虚拟麦克风 CLI
+├── tests/              # 单测（不依赖权重与演示素材）
 └── models/             # 权重目录（不入库，见下）
 ```
 
@@ -65,14 +65,13 @@ pip install -r requirements.txt
 拿到权重后，放到以下位置：
 
 ```text
-app/
-└── models/
-    ├── x16_stream/
-    │   ├── step.onnx          # 流式分离模型（约 65.5 MiB）
-    │   ├── enroll.onnx        # 声纹编码模型（约 1.45 MiB）
-    │   └── export_report.json # 导出校验报告（服务启动时读取）
-    └── campplus/              # 可选：CAM++ 旁路观察
-        └── 3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx
+models/
+├── x16_stream/
+│   ├── step.onnx          # 流式分离模型（约 65.5 MiB）
+│   ├── enroll.onnx        # 声纹编码模型（约 1.45 MiB）
+│   └── export_report.json # 导出校验报告（服务启动时读取）
+└── campplus/              # 可选：CAM++ 旁路观察
+    └── 3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx
 ```
 
 CAM++ 权重为第三方模型，可从 ModelScope 的

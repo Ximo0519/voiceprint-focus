@@ -63,7 +63,7 @@ x16 在 0→10 dB 三档间均值几乎平坦（4.04–4.21 dB）；预注册支
 |---|---|---|
 | 有效延迟探针（尾部能量响应） | G1 max 28.69 / mean 24.58 ms；G2 max 29.50 ms；G3 max 28.75 ms | 每场景前 10 条（n = 10/场景，样本量小，尾部未覆盖）；判决线 ≤ 40 ms |
 | PyTorch ↔ ONNX Runtime 等价性 | max abs diff < 1e-5，pass=true | 导出报告 `export_report.json` |
-| 整段 ↔ 分块流式等价性 | worst 1.81e-5 < 1e-3 | 终审 300 条全量 |
+| 整段 ↔ 分块流式等价性 | worst < 1e-3（已有两组实测：1.81e-5 / 1.03e-4） | 判决线 1e-3；两组数值来自不同测量批次，统一复测列为待办 |
 | 理论算法延迟 | 32 ms 块 + 128 样本 hop 余量 | 窗 512 / hop 128 @16 kHz |
 
 ## 5. 注册环节（声纹质量闸门）
@@ -94,7 +94,7 @@ x16 在 0→10 dB 三档间均值几乎平坦（4.04–4.21 dB）；预注册支
 | `w17_eval.json` | 加噪鲁棒性（SNR 10/5/0，ESC-50 未见 10 类） |
 | `docs/w1_report.md` | 场景定义、离线评测、失败模式分析 |
 | `export_report.json`（权重 Release 内） | ONNX 导出等价性 |
-| `app/backend/engine.py` | 注册 QC 阈值与旁路参数 |
+| `backend/engine.py` | 注册 QC 阈值与旁路参数 |
 
 注：上述评测 JSON 与评测脚本（`scripts/w16_eval_stream.py`，判决规则在文件头注释中
 逐条写明）含云端路径，未随本仓库发布；本文件中的数字均逐字取自这些原始结果文件，

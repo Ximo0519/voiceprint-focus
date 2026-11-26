@@ -72,7 +72,7 @@ def _env_ms(name: str, default: float) -> float:
 # 诊断录制（默认关闭，不影响推理与输出）：把「送进模型的原样输入」与「最终输出」各存一条
 # 16k WAV，并把每块的模型/旁路标记写成同名 txt，用来区分噪声来自输入侧还是模型/OLA 侧。
 #   VF_CAPTURE=1        开启
-#   VF_CAPTURE_DIR      输出目录（默认 app/backend/captures）
+#   VF_CAPTURE_DIR      输出目录（默认 backend/captures）
 #   VF_CAPTURE_MAX_S    每条流最多录多少秒（默认 30，超限后只停录、不影响推理）
 CAPTURE = os.environ.get("VF_CAPTURE", "0").strip().lower() not in (
     "0", "", "false", "no", "off")

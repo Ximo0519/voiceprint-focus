@@ -12,7 +12,7 @@
 
 开关
     VF_CAMPP=0              关闭旁路（默认开）
-    VF_CAMPP_DIAG_DIR=...   诊断输出目录（默认 app/backend/campp_diag）
+    VF_CAMPP_DIAG_DIR=...   诊断输出目录（默认 backend/campp_diag）
 """
 from __future__ import annotations
 

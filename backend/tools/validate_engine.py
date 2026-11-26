@@ -1,8 +1,8 @@
 """链路自检 + 实测：STFT 对齐、ONNX 在线输出 vs PyTorch 参考流式、SI-SNRi、延迟探针、RTF。
 
 用法:
-  python app/backend/tools/validate_engine.py --ckpt <avg_model.pt> \
-      --onnx-dir app/models/x16_stream --data data/zh_ft/dev.csv --limit 300 \
+  python backend/tools/validate_engine.py --ckpt <avg_model.pt> \
+      --onnx-dir models/x16_stream --data data/zh_ft/dev.csv --limit 300 \
       --out <work>/metrics/validate.json
 """
 from __future__ import annotations

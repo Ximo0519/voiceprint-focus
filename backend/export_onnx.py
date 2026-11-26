@@ -5,7 +5,7 @@
                                                            -> est_ri(1,2,257,T), h', c'
 STFT/iSTFT 在 ONNX 外（dsp.py）完成，图里只有网络本体，保证与训练代码逐算子同构。
 
-用法: python app/backend/export_onnx.py --ckpt <avg_model.pt> --out app/models/x16_stream
+用法: python backend/export_onnx.py --ckpt <avg_model.pt> --out models/x16_stream
 """
 from __future__ import annotations
 
