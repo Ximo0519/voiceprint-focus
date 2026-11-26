@@ -52,8 +52,11 @@ pip install -r requirements.txt
 
 ## 获取模型权重
 
-**权重不在本仓库中。** 它与代码分开、按 **Research Use Only** 单独发布，权重许可全文
-随权重包单独提供（不随代码仓库分发）。
+**权重不在本仓库中。** 它与代码分开、按 **Research Use Only** 单独发布，见 GitHub Release：
+
+- [x16-weights-v1](https://github.com/Ximo0519/voiceprint-focus/releases/tag/x16-weights-v1)
+  包含 `step.onnx`、`enroll.onnx`、`export_report.json`、`LICENSE-WEIGHTS`（权重许可全文）、
+  `NOTICE` 与 `SHA256SUMS.txt`。
 
 拿到权重后，放到以下位置：
 
@@ -149,7 +152,8 @@ python -m vmic run --output "CABLE Input"
 ## 许可 / License
 
 本仓库的**代码**采用 [Apache License 2.0](LICENSE)；**模型权重**按 **Research Use Only**
-单独发布，其许可全文随权重包单独提供，禁止商业使用。
+单独发布，见 [GitHub Release x16-weights-v1](https://github.com/Ximo0519/voiceprint-focus/releases/tag/x16-weights-v1)，
+其许可全文随权重包单独提供，禁止商业使用。
 
 - 上游署名、第三方组件与数据集的条款见 [`NOTICE`](NOTICE)。
 - `backend/model_def.py` 是 [wenet-e2e/WeSep](https://github.com/wenet-e2e/WeSep)
