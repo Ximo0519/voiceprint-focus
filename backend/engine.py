@@ -47,6 +47,9 @@ PD_FLOOR = 10 ** (PD_FLOOR_DB / 20)  # 线性增益下限
 PD_SMOOTH = 0.6              # 帧间增益平滑，抑制 musical noise
 PD_ALPHA = 0.08              # 噪底 EMA 系数（噪声段）
 PD_NOISE_RATIO = 2.0         # 输入块能量低于最低能量 ×2（+3dB）才更新噪底
+# 纯数字静音（约 ≤ -90dBFS 功率）不参与噪底学习：既不初始化也不回退 pd_emin。
+# 否则首块全零会把 pd_emin 锚到 0，乘性回升 0*1.0005 永远是 0，降噪永久失效。
+PD_SILENT_E = 1e-9
 # 运行中开关降噪的过渡块数：增益在 4 块（128ms）内线性淡入/淡出，避免单块电平跳变。
 PD_RAMP_BLOCKS = 4
 
@@ -732,6 +735,11 @@ class StreamSession:
         pout = (spec.real ** 2 + spec.imag ** 2).astype(np.float32)
         pin_m = pin.mean(axis=1, keepdims=True)          # (257,1) 本块输入功率
         e_in = float(pin.mean())
+        if e_in <= PD_SILENT_E:
+            # 纯数字静音没有声学信息：直接放行，且不碰 pd_emin / pd_noise。
+            # 若在这里初始化，pd_emin=0 会让 `pd_emin *= 1.0005` 永远停在 0，
+            # 后续真实音频再也学不到噪底（vmic 预热/Web 首块即触发）。
+            return spec
         if self.pd_emin is None:
             self.pd_emin = e_in
             self.pd_noise = np.zeros_like(pin_m)

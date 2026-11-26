@@ -75,6 +75,13 @@ class FocusPipeline:
         self._q_out.clear()
         self._out_samples = 0
         self._acc = np.zeros(0, np.float32)
+        # 预热灌的是全零块，没有任何声学信息：清空后置降噪的学习状态，让第一块真实
+        # 音频重新初始化噪底。这里只重置 PD 三项（标量/谱模板/上一帧增益，均不含时间
+        # 坐标）；OLA 与停顿时钟仍保持预热推进后的稳态，不能回退——pause_ff 的
+        # g_frames 与 istft.next_q 共用绝对样本坐标，单独归零会让时间轴错位。
+        self.sess.pd_emin = None
+        self.sess.pd_noise = None
+        self.sess.pd_gain = None
         # 记下预热占用的统计量，summary 里扣掉，避免把预热算进 RTF
         self._warm_chunks = len(self.sess.stats)
         self._warm_compute_ms = self.sess.total_compute_ms
