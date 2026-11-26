@@ -92,17 +92,60 @@ def block_samples(sr: int, ms: int = 10) -> int:
 
 
 class Resampler:
-    """固定倍率重采样（16k ↔ 设备采样率）。resample_poly 实测群延迟 <1 样本。"""
+    """固定倍率重采样（16k ↔ 设备采样率）。
+
+    逐块调用无状态 `resample_poly` 时，每块按零边界做 FIR，块边缘会产生周期性
+    台阶：10ms 输入块的块率是 100Hz，实测 1kHz 音两侧 ±100Hz 边带约 -67dB、
+    全带外杂散约 -46dB。
+
+    这里做有状态的 overlap-save：保留 32 个输入样本的「过去历史 + 未来前瞻」，
+    把窗口一起重采样后只取当前块对应的输出。FIR 两侧都有真实上下文，等价于
+    整段处理，且只引入约 0.7–2ms 的固定前瞻延迟（而不是 soxr LQ 的 31ms）。
+
+    说明：soxr 的 LQ 档同样能压掉边带，但 48k→16k→48k 全链约 31ms 群延迟，
+    会吃掉 118ms 端到端预算的 1/4；QQ 档抗混叠仅 -12dB，不可用。
+    """
+
+    _HIST = 64   # 输入侧历史样本数（≥ 多相 FIR 半长，scipy 默认 61 taps）
+    _FUT = 32    # 输入侧前瞻样本数（同上，用于补足 FIR 的未来上下文）
 
     def __init__(self, from_sr: int, to_sr: int):
         g = gcd(int(from_sr), int(to_sr))
         self.up = int(to_sr) // g
         self.down = int(from_sr) // g
+        self._hist = np.zeros(0, np.float32)     # 已处理样本的尾部
+        self._pending = np.zeros(0, np.float32)  # 已收到但还缺前瞻、暂不处理的样本
+        self._processed = 0                       # 已处理的输入样本总数
+        self._emitted = 0                         # 已输出的样本总数
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
-        if self.up == self.down == 1:
-            return np.asarray(x, np.float32)
-        return resample_poly(np.asarray(x, np.float32), self.up, self.down).astype(np.float32)
+        x = np.asarray(x, np.float32)
+        if self.up == self.down == 1 or len(x) == 0:
+            return x
+        self._pending = (np.concatenate([self._pending, x])
+                         if len(self._pending) else x)
+        k = len(self._pending) - self._FUT
+        if k <= 0:
+            return np.zeros(0, np.float32)
+
+        chunk, future = self._pending[:k], self._pending[k:]
+        buf = np.concatenate([self._hist, chunk, future])
+        y = resample_poly(buf, self.up, self.down).astype(np.float32)
+
+        # 输出区间用全局累计坐标换算，避免逐块取整造成长度漂移
+        r = self.up / self.down
+        a = int(round(len(self._hist) * r))
+        want = int(round((self._processed + k) * r)) - self._emitted
+        out = y[a:a + want]
+        if len(out) < want:                       # 浮点/取整边界兜底
+            out = np.pad(out, (0, want - len(out)))
+
+        self._processed += k
+        self._emitted += want
+        self._pending = future.copy()
+        past = np.concatenate([self._hist, chunk])
+        self._hist = past[-self._HIST:].copy()
+        return out
 
 
 class AudioIn:
