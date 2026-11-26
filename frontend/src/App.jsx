@@ -4,6 +4,20 @@ import { AudioEngine, concatFloat32, encodeWav } from "./audio";
 
 const SR = 16000;
 
+// 长流保护：指标/曲线只保留滑窗，导出音频设上限。
+// 修复前这些数组全程累加，且每 300ms 对全量做 sort + Math.max(...arr) 展开，
+// 约 35–70 分钟就会因 JS 实参上限抛 RangeError，指标面板从此不再刷新。
+const MAX_STATS = 1800;            // ≈ 1 分钟（32ms 一块）
+const MAX_QUEUE_SAMPLES = 600;     // ≈ 3 分钟（300ms 一点）
+const MAX_TRACK_SAMPLES = 600 * SR; // 导出音频上限 10 分钟（16k 单声道约 38MB）
+const maxOf = (arr) => arr.reduce((m, v) => (v > m ? v : m), -Infinity);
+// 推入采集块并维护样本计数，超过上限后不再增长（避免长会议把内存打满）
+const pushChunk = (ref, counterRef, chunk) => {
+  if (counterRef.current >= MAX_TRACK_SAMPLES) return;
+  ref.current.push(chunk);
+  counterRef.current += chunk.length;
+};
+
 function makeWave(n = 4096) {
   return { data: new Float32Array(n), pos: 0 };
 }
@@ -102,6 +116,13 @@ export default function App() {
   const outputChunksRef = useRef([]);
   const statsRef = useRef([]);
   const queueSamplesRef = useRef([]);
+  const chunkCountRef = useRef(0);
+  const audioSRef = useRef(0);
+  const computeMsRef = useRef(0);
+  const overrunsRef = useRef(0);
+  const inSamplesRef = useRef(0);
+  const outSamplesRef = useRef(0);
+  const abUrlsRef = useRef({ mix: null, out: null });
   const waveIn = useRef(makeWave());
   const waveOut = useRef(makeWave());
   const feedRef = useRef(null);
@@ -165,37 +186,40 @@ export default function App() {
       const arr = statsRef.current;
       const comp = arr.map((s) => s.compute_ms);
       const algo = arr.map((s) => s.algo_latency_ms);
-      const audioS = arr.reduce((a, s) => a + s.frames * 0.008, 0);
       const eng = engineRef.current;
       const q = eng ? eng.queueDelayMs() : 0;
       queueSamplesRef.current.push(q);
+      if (queueSamplesRef.current.length > MAX_QUEUE_SAMPLES) {
+        queueSamplesRef.current.splice(
+          0, queueSamplesRef.current.length - MAX_QUEUE_SAMPLES);
+      }
       const qs = [...queueSamplesRef.current].sort((a, b) => a - b);
       const algoSorted = [...algo].sort((a, b) => a - b);
       const last = arr.length ? arr[arr.length - 1] : null;
       const srvQueue = last?.queue_in_ms ?? null;
       setMetrics({
-        chunks: arr.length,
+        chunks: chunkCountRef.current,
         computeMean: comp.length ? comp.reduce((a, b) => a + b, 0) / comp.length : null,
         computeP95: comp.length
           ? [...comp].sort((a, b) => a - b)[Math.floor(comp.length * 0.95)]
           : null,
-        computeMax: comp.length ? Math.max(...comp) : null,
+        computeMax: comp.length ? maxOf(comp) : null,
         algoLast: algo.length ? algo[algo.length - 1] : null,
         algoMed: algo.length ? algoSorted[Math.floor(algoSorted.length / 2)] : null,
-        algoMax: algo.length ? Math.max(...algo) : null,
-        rtf: audioS > 0 ? comp.reduce((a, b) => a + b, 0) / 1000 / audioS : null,
+        algoMax: algo.length ? maxOf(algo) : null,
+        rtf: audioSRef.current > 0 ? computeMsRef.current / 1000 / audioSRef.current : null,
         queue: qs.length ? qs[Math.floor(qs.length / 2)] : 0,
         queueNow: q,
         underruns: eng ? eng.underruns : 0,
-        audioS,
+        audioS: audioSRef.current,
         srvQueue,
-        srvQueueMax: arr.length ? Math.max(...arr.map((s) => s.queue_in_ms ?? 0)) : null,
+        srvQueueMax: arr.length ? maxOf(arr.map((s) => s.queue_in_ms ?? 0)) : null,
         srvOut: last?.queue_out_ms ?? null,
         upBuf: clientRef.current?.bufferedMs?.() ?? 0,
         dropIn: last?.dropped_in_ms ?? 0,
         dropOut: last?.dropped_out_ms ?? 0,
         skipped: last?.skipped_ms ?? 0,
-        overruns: arr.reduce((a, s) => a + (s.overrun ? 1 : 0), 0),
+        overruns: overrunsRef.current,
         clientDrop: clientRef.current?.droppedMs ?? 0,
       });
     }, 300);
@@ -219,6 +243,12 @@ export default function App() {
           queueSamplesRef.current = [];
           inputChunksRef.current = [];
           outputChunksRef.current = [];
+          chunkCountRef.current = 0;
+          audioSRef.current = 0;
+          computeMsRef.current = 0;
+          overrunsRef.current = 0;
+          inSamplesRef.current = 0;
+          outSamplesRef.current = 0;
           clearWave(waveIn.current);
           clearWave(waveOut.current);
           engine().resetQueue();
@@ -229,7 +259,13 @@ export default function App() {
           if (typeof msg.post_denoise === "boolean") setPdOn(msg.post_denoise);
           setPdBusy(false);
         } else if (msg.type === "stats") {
-          statsRef.current.push(msg);
+          chunkCountRef.current += 1;
+          audioSRef.current += (msg.frames || 0) * 0.008;
+          computeMsRef.current += msg.compute_ms || 0;
+          if (msg.overrun) overrunsRef.current += 1;
+          const arr = statsRef.current;
+          arr.push(msg);
+          if (arr.length > MAX_STATS) arr.splice(0, arr.length - MAX_STATS);
         } else if (msg.type === "done") {
           readyRef.current = false;
           setSummary(msg.summary);
@@ -245,7 +281,7 @@ export default function App() {
       },
       onAudio: (f32) => {
         engine().enqueueOut(f32);
-        outputChunksRef.current.push(f32);
+        pushChunk(outputChunksRef, outSamplesRef, f32);
         pushWave(waveOut.current, f32);
       },
       onError: () => setNotice({ kind: "error", text: "无法连接后端服务，请确认已启动" }),
@@ -368,7 +404,7 @@ export default function App() {
           }
         } else if (destRef.current === "stream") {
           clientRef.current?.sendAudio(chunk);
-          inputChunksRef.current.push(chunk);
+        pushChunk(inputChunksRef, inSamplesRef, chunk);
           pushWave(waveIn.current, chunk);
         }
       });
@@ -438,7 +474,7 @@ export default function App() {
         await engine().startMic((chunk) => {
           if (destRef.current === "stream") {
             clientRef.current?.sendAudio(chunk);
-            inputChunksRef.current.push(chunk);
+          pushChunk(inputChunksRef, inSamplesRef, chunk);
             pushWave(waveIn.current, chunk);
           }
         });
@@ -502,7 +538,7 @@ export default function App() {
           const n = Math.min(128, target - pos);
           const chunk = mix.slice(pos, pos + n);
           clientRef.current?.sendAudio(chunk);
-          inputChunksRef.current.push(chunk);
+        pushChunk(inputChunksRef, inSamplesRef, chunk);
           pushWave(waveIn.current, chunk);
           pos += n;
         }
@@ -535,8 +571,17 @@ export default function App() {
     if (phase !== "done") return;
     const inp = concatFloat32(inputChunksRef.current);
     const out = concatFloat32(outputChunksRef.current);
-    if (inp.length) setAbUrls({ mix: URL.createObjectURL(encodeWav(inp)), out: URL.createObjectURL(encodeWav(out)) });
+    if (!inp.length) return;
+    const next = { mix: URL.createObjectURL(encodeWav(inp)), out: URL.createObjectURL(encodeWav(out)) };
+    // 先释放上一轮的 URL，否则每完成一次会话就泄漏两份完整音频
+    Object.values(abUrlsRef.current).forEach((u) => u && URL.revokeObjectURL(u));
+    abUrlsRef.current = next;
+    setAbUrls(next);
   }, [phase]);
+
+  useEffect(() => () => {
+    Object.values(abUrlsRef.current).forEach((u) => u && URL.revokeObjectURL(u));
+  }, []);
 
   const inputSec = inputChunksRef.current.reduce((a, c) => a + c.length, 0) / SR;
   const outSec = outputChunksRef.current.reduce((a, c) => a + c.length, 0) / SR;
