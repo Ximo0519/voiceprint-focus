@@ -1,0 +1,265 @@
+NOTICE
+======
+
+本项目（x16 流式目标说话人提取 / voiceprint-focus，以下简称“本项目”）包含自研代码，
+并在训练与分发中使用了若干第三方组件、预训练权重与数据集。本文件列明这些第三方的
+来源、适用条款与出处，供再分发时保留。
+
+说明
+----
+- 本文件只陈述事实与条款，不构成法律意见。
+- 本项目代码的整体许可证：**Apache License 2.0**（2026-11-25 决定）。该决定只覆盖自研
+  代码；若仓库含 WeSep `wesep_2024` 衍生实现，该部分仍受上游未决状态约束（见第 2 节）。
+- 模型权重 step.onnx / enroll.onnx 不随代码仓库发布，单独按 LICENSE-WEIGHTS
+  （Research Use Only）发布。
+- 本文件中的英文引用为上游原文；中文为说明性翻译，冲突时以上游原文为准。
+
+---
+
+1. WeSep（训练/推理框架，master 分支）
+--------------------------------------
+来源：https://github.com/wenet-e2e/WeSep
+条款：Apache License 2.0
+出处：https://github.com/wenet-e2e/WeSep#license
+      https://github.com/wenet-e2e/WeSep/blob/master/LICENSE
+
+原文摘录：
+  "WeSep is released under the Apache License 2.0, except for the third-party
+   components listed in THIRD_PARTY_NOTICES.md."
+
+  "4. Redistribution. You may reproduce and distribute copies of the Work or
+   Derivative Works thereof in any medium, with or without modifications, and in
+   Source or Object form, provided that You meet the following conditions:
+   (a) You must give any other recipients of the Work or Derivative Works a copy
+       of this License; and
+   (b) You must cause any modified files to carry prominent notices stating that
+       You changed the files; and
+   (c) You must retain, in the Source form of any Derivative Works that You
+       distribute, all copyright, patent, trademark, and attribution notices
+       from the Source form of the Work..."
+
+本项目使用方式：训练/评测脚本通过 `sys.path` 引入外部安装的 WeSep（`from wesep.models
+import get_model` 等），本仓库不复制、不分发 WeSep 源码。
+
+义务：如分发任何 WeSep 衍生代码，须附 Apache-2.0 全文、保留版权/NOTICE、标注改动。
+
+---
+
+2. WeSep `wesep_2024` 分支（x16 实际使用的分支）
+------------------------------------------------
+来源：https://github.com/wenet-e2e/wesep/tree/wesep_2024
+条款：**该分支根目录不存在 LICENSE 文件**（不是“没有许可”，是“没有仓库级许可文件”）。
+
+可核验事实：
+- https://raw.githubusercontent.com/wenet-e2e/wesep/wesep_2024/LICENSE 返回 HTTP 404；
+  同一路径在 master 返回 HTTP 200。
+- `wesep/cli/hub.py` 文件头含 Apache-2.0 声明：
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+- `wesep/models/bsrnn.py` 文件头无版权/许可声明（直接以 `from __future__ import
+  print_function` 开始）。
+
+本项目使用方式：经代码相似度审查确认，`app/backend/model_def.py` 是 WeSep BSRNN
+（`wesep_2024` 布局）经项目内 w14/w16 两次改写后的推理裁剪版，属衍生作品；已在文件头
+保留上游署名、SPDX 标识与显著修改声明。`scripts/w14_causal_train.py`、
+`scripts/w16_tfmap_train.py` 通过 import 依赖 wesep，本仓库不复制、不分发 WeSep 源码。
+
+义务/状态：在取得 wenet-e2e 书面答复前，**不要**声称 `wesep_2024` 整体已按 Apache-2.0
+授权；不要把该分支源码复制进本仓库。[未决]
+
+---
+
+3. 预训练权重 bsrnn_ecapa_vox1（x16 祖系底座）
+---------------------------------------------
+来源：https://www.modelscope.cn/datasets/wenet/wesep_pretrained_models
+条款：上传者填写 `"License":"Apache License 2.0"`；数据集卡为默认模板，无单独 LICENSE 文件。
+
+原文摘录（ModelScope API）：
+  "Name":"wesep_pretrained_models"
+  "Namespace":"wenet"
+  "License":"Apache License 2.0"
+  "ReadmeContent":"数据集文件元信息以及数据文件，请浏览“数据集文件”页面获取。\n\n
+   当前数据集卡片使用的是默认模版，数据集的贡献者未提供更加详细的数据集介绍..."
+
+下载来源（WeSep 2024 CLI 硬编码）：
+  ModelURLs = {
+      "bsrnn_ecapa_vox1.tar.gz": (
+          "https://www.modelscope.cn/datasets/wenet/wesep_pretrained_models/"
+          "resolve/master/bsrnn_ecapa_vox1.tar.gz"
+      ),
+  }
+
+本项目使用方式：x16 谱系为 bsrnn_ecapa_vox1 → x10b / x11（AISHELL-1 微调/续训）
+→ x14（因果化重训）→ x16（帧级 TF-Map，warm-start 自 x14_ft）。
+
+义务/状态：本次未解包 `bsrnn_ecapa_vox1.tar.gz` 核对包内是否另有 LICENSE/NOTICE；
+不能据此字段断言“x16 权重只受 Apache-2.0 约束”。[未决]
+
+---
+
+4. WeSpeaker ECAPA 与 VoxCeleb1
+-------------------------------
+来源：https://github.com/wenet-e2e/wespeaker
+      https://github.com/wenet-e2e/wespeaker/blob/master/docs/pretrained.md
+      https://mm.kaist.ac.kr/datasets/voxceleb/index.html
+条款：WeSpeaker 预训练模型跟随其数据集许可；VoxCeleb → CC BY 4.0。
+
+原文摘录（WeSpeaker `docs/pretrained.md` · Model License）：
+  "The pretrained model in WeNet follows the license of it's corresponding dataset.
+   For example, the pretrained model on VoxCeleb follows ` Creative Commons
+   Attribution 4.0 International License. `, since it is used as license of the
+   VoxCeleb dataset, see https://mm.kaist.ac.kr/datasets/voxceleb/."
+
+原文摘录（KAIST 镜像 · VoxCeleb）：
+  "The VoxCeleb dataset is available to download for research purposes under a
+   Creative Commons Attribution 4.0 International License. The copyright remains
+   with the original owners of the video."
+
+冲突表述（lhotse recipe 文档，同一数据集）：
+  "The VoxCeleb dataset is available to download for commercial/research purposes
+   under a Creative Commons Attribution 4.0 International License. The copyright
+   remains with the original owners of the video."
+
+本项目使用方式：x16 的说话人编码器为 VoxCeleb 预训练的 ECAPA-TDNN（配置中冻结，
+`spk_model_init: ./wespeaker_models/voxceleb_ECAPA512/avg_model.pt`）；底座 BSRNN
+训练于 VoxCeleb1（`train-vox1`，`spksInTrain: 251`）。
+
+义务：按 CC BY 4.0 署名（见下）。VoxCeleb 原始视频版权仍属视频所有者；不得暗示
+名人背书。“research purposes”与“commercial/research”的冲突在商业使用前必须书面澄清。[未决]
+
+署名文本：
+  VoxCeleb1: A. Nagrani, J. S. Chung, A. Zisserman, "VoxCeleb: a large-scale
+  speaker identification dataset", Interspeech 2017. Dataset licensed under
+  CC BY 4.0; copyright remains with the original owners of the video.
+
+---
+
+5. AISHELL-1
+------------
+来源：http://www.aishelltech.com/kysjcp
+      https://www.openslr.org/33/
+条款：官方页 `License: Apache License v.2.0`；OpenSLR 同时写 Apache-2.0 与
+“The data is free for academic use.”
+
+原文摘录（AISHELL 官方页）：
+  "License: Apache License v.2.0"
+
+原文摘录（OpenSLR SLR33）：
+  "License: Apache License v.2.0"
+  "Aishell is an open-source Chinese Mandarin speech corpus published by Beijing
+   Shell Shell Technology Co.,Ltd."
+  "The data is free for academic use."
+
+本项目使用方式：x16 的目标语音、干扰语音与注册语音均来自 AISHELL-1（400 说话人；
+训练 300 / dev 40 / 未见 60）。**AISHELL-1 音频不随本仓库或权重发布。**
+
+义务：按 Apache-2.0 署名；不复制音频；OpenSLR 的 academic 表述在商业使用前需向
+AISHELL 团队书面确认。[未决]
+
+---
+
+6. ESC-50
+---------
+来源：https://github.com/karoldvl/ESC-50
+条款：数据集整体 CC BY-NC 3.0（ESC-10 子集为 CC BY 3.0，本项目未使用该子集）。
+
+原文摘录（ESC-50 LICENSE）：
+  "The dataset as a whole is available under the terms of the Creative Commons
+   Attribution-NonCommercial license (http://creativecommons.org/licenses/by-nc/3.0/).
+   The ESC-10 subset is licensed as a Creative Commons Attribution 3.0 Unported
+   (https://creativecommons.org/licenses/by/3.0/) dataset."
+
+原文摘录（CC BY-NC 3.0 §4(b)）：
+  "You may not exercise any of the rights granted to You in Section 3 above in any
+   manner that is primarily intended for or directed toward commercial advantage
+   or private monetary compensation."
+
+本项目使用方式：x16 训练噪声约 90% 来自 ESC-50，10% 为白/粉合成噪声，SNR 在
+U[0,10] dB 抽样；评测另用 ESC-50 未见 10 类。**ESC-50 音频不随本仓库或权重发布。**
+
+义务：署名 + 非商业。x16 权重因此按 LICENSE-WEIGHTS 以 Research Use Only 发布。
+
+署名文本：
+  K. J. Piczak, "ESC: Dataset for Environmental Sound Classification",
+  ACM Multimedia 2015. Dataset licensed under CC BY-NC 3.0.
+
+---
+
+7. MUSAN（记录在案，实际未使用）
+--------------------------------
+来源：https://www.openslr.org/17/
+条款：CC BY 4.0
+
+原文摘录：
+  "License: Attribution 4.0 International (CC BY 4.0)"
+
+本项目使用方式：底座配置出现 `noise_lmdb_file: ./musan/lmdb`，但 `noise_prob: 0`，
+x16 训练链未启用 MUSAN。此处仅为完整记录；若后续启用，须按 CC BY 4.0 署名。
+
+---
+
+8. 仓库内第三方代码：OpenSpeakerBeam-SS
+---------------------------------------
+路径：`third_party/OpenSpeakerBeam-SS/`
+来源：**上游 URL 未在仓库内记录**（README 只写“independent implementation of
+SpeakerBeam-SS, arXiv:2407.01857”，未给自身仓库地址）；LICENSE 署名 “Yasushi Sakita”。
+发布前请补上实际上游地址。
+条款：MIT License
+
+原文摘录（LICENSE）：
+  "MIT License
+   Copyright (c) 2025 Yasushi Sakita
+   Permission is hereby granted, free of charge, to any person obtaining a copy..."
+
+义务：保留 LICENSE 与版权声明。若该目录不参与 x16 交付，可整体不发布（见 RELEASE-SCOPE.md）。
+
+---
+
+9. 运行时与前端依赖
+-------------------
+| 组件 | 条款 | 出处 |
+|---|---|---|
+| ONNX Runtime | MIT | https://github.com/microsoft/onnxruntime/blob/main/LICENSE |
+| Silero VAD | MIT | https://github.com/snakers4/silero-vad/blob/master/LICENSE |
+| CAM++（`iic/speech_campplus_sv_zh-cn_16k-common`） | Apache License 2.0（ModelScope 字段） | https://www.modelscope.cn/models/iic/speech_campplus_sv_zh-cn_16k-common |
+| React 18 | MIT | https://github.com/facebook/react/blob/main/LICENSE |
+| Vite 5 | MIT | https://github.com/vitejs/vite/blob/main/LICENSE |
+
+说明：
+- 通过 pip / npm 安装、不把二进制放进仓库的，不构成“随仓库再分发”，但仍建议在
+  THIRD_PARTY_LICENSES 中列出。
+- 若把 ONNX Runtime / Silero / CAM++ 的二进制或 `.onnx` 打进 Release，须附各自
+  许可全文与版权声明。
+- 前端/后端依赖尚未逐一扫描；发布前应生成完整清单（`pip-licenses`、`npx license-checker`）。
+
+---
+
+10. 模型权重（单独许可）
+------------------------
+文件：`step.onnx`（68,705,324 bytes ≈ 65.52 MiB）、`enroll.onnx`（1,523,328 bytes ≈ 1.45 MiB）
+许可：见同目录 `LICENSE-WEIGHTS`（Research Use Only）。
+说明：权重为上述上游组件与数据的训练产物；本 NOTICE 的上游义务同样适用于权重的再分发。
+
+---
+
+11. 本仓库 / 本 Release 不包含的内容
+------------------------------------
+- ESC-50、AISHELL-1、MUSAN、VoxCeleb 的任何音频或标注文件；
+- `bsrnn_ecapa_vox1`、WeSpeaker ECAPA、CAM++ 以外的第三方 `.pt` / `.pth` / `.onnx`；
+- 用户录音、注册声纹、`app/backend/captures/`、`app/backend/campp_diag/`；
+- Edge TTS 合成的演示音频（`data/zh_ft`、`data/zh_tts`、`app/backend/assets/demo/`）。
+
+使用者需自行获取上述素材，并自行遵守其许可。
+
+---
+
+12. 未决事项（与 01-事实与条款.md 第 6 节一致）
+----------------------------------------------
+1. `wesep_2024` 分支的整体许可意图：根目录无 LICENSE，需上游书面确认。
+2. ModelScope 权重包的再许可权：数据集卡为默认模板，未解包核对。
+3. AISHELL-1 的 OpenSLR “academic use” 是否构成额外限制：需书面确认。
+4. VoxCeleb1 的商业使用：镜像页“research purposes”与 lhotse“commercial/research”冲突。
+5. x16 权重是否构成 ESC-50 的 Adaptation：无权威结论，按最保守方式处理（非商业发布）。
+6. 专利：本次未做 BSRNN/WeSep 相关 FTO。
+
+在这些事项有书面结论前，不要把本项目或权重描述为“可商用”“Apache-2.0 覆盖全部内容”。

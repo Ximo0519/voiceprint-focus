@@ -1,0 +1,15 @@
+# 运行时依赖（Python 3.10+）
+fastapi>=0.110,<1.0
+uvicorn>=0.27
+python-multipart>=0.0.9
+numpy>=1.24
+onnxruntime>=1.17
+psutil>=5.9
+soundfile>=0.12
+sounddevice>=0.4.6
+scipy>=1.10
+
+# 可选：仅在导出 ONNX（backend/export_onnx.py）或离线校验（backend/tools/validate_engine.py）时需要
+#   pip install torch
+# 可选：仅在启用 CAM++ 注册旁路观察（backend/campp.py）时需要，缺失时自动禁用
+#   pip install sherpa-onnx

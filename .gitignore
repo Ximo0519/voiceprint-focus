@@ -1,0 +1,48 @@
+# --- Python ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# --- Node / 前端 ---
+frontend/node_modules/
+frontend/dist/
+node_modules/
+dist/
+
+# --- 模型权重与二进制（不随仓库分发） ---
+models/
+*.onnx
+*.pt
+*.pth
+*.ckpt
+*.npz
+*.npy
+*.tar.gz
+*.zip
+
+# --- 隐私数据与采集/诊断产物 ---
+backend/enrollments/
+backend/captures/
+backend/campp_diag/
+backend/assets/demo/
+*.wav
+*.flac
+*.mp3
+*.m4a
+*.jsonl
+*_blocks.txt
+
+# --- 日志与本地环境 ---
+*.log
+live_env.txt
+.env
+.env.*
+*.local
+
+# --- 系统 / 编辑器 ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
