@@ -96,5 +96,7 @@ x16 在 0→10 dB 三档间均值几乎平坦（4.04–4.21 dB）；预注册支
 | `export_report.json`（权重 Release 内） | ONNX 导出等价性 |
 | `app/backend/engine.py` | 注册 QC 阈值与旁路参数 |
 
-评测脚本：`scripts/w16_eval_stream.py`（口径与判决规则在文件头注释中逐条写明）。
+注：上述评测 JSON 与评测脚本（`scripts/w16_eval_stream.py`，判决规则在文件头注释中
+逐条写明）含云端路径，未随本仓库发布；本文件中的数字均逐字取自这些原始结果文件，
+如需核对可联系作者提供。
 评测数据（AISHELL-1 / ESC-50 音频）不随仓库发布，需自行获取并按各自许可使用。
