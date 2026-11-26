@@ -6,10 +6,20 @@ import threading
 from math import gcd
 
 import numpy as np
-import sounddevice as sd
 from scipy.signal import resample_poly
 
+try:  # PortAudio 不可用（CI / 无声卡机器）时不影响 Resampler 等纯 DSP 逻辑
+    import sounddevice as sd
+except Exception:  # noqa: BLE001
+    sd = None
+
 SR_MODEL = 16000
+
+
+def _require_sd():
+    if sd is None:
+        raise RuntimeError(
+            "sounddevice/PortAudio 不可用：本机麦克风/播放仅支持 Windows/macOS 且有音频设备")
 
 
 class DeviceError(RuntimeError):
@@ -173,6 +183,7 @@ class AudioIn:
             self.errors += 1
 
     def start(self):
+        _require_sd()
         self._stream = sd.InputStream(
             device=self.dev["index"], samplerate=self.sr, channels=self.channels,
             dtype="float32", blocksize=self.block, latency="low", callback=self._cb)
@@ -224,6 +235,7 @@ class AudioOut:
             outdata.fill(0)
 
     def start(self):
+        _require_sd()
         self._stream = sd.OutputStream(
             device=self.dev["index"], samplerate=self.sr, channels=self.channels,
             dtype="float32", blocksize=self.block, latency="low", callback=self._cb)
