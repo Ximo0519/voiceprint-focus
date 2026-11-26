@@ -52,8 +52,8 @@ pip install -r requirements.txt
 
 ## 获取模型权重
 
-**权重不在本仓库中。** 它与代码分开、按 **Research Use Only** 单独发布，许可全文见
-[`LICENSE-WEIGHTS`](LICENSE-WEIGHTS)。
+**权重不在本仓库中。** 它与代码分开、按 **Research Use Only** 单独发布，权重许可全文
+随权重包单独提供（不随代码仓库分发）。
 
 拿到权重后，放到以下位置：
 
@@ -148,8 +148,8 @@ python -m vmic run --output "CABLE Input"
 
 ## 许可 / License
 
-本仓库的**代码**采用 [Apache License 2.0](LICENSE)；**模型权重**单独按
-[`LICENSE-WEIGHTS`](LICENSE-WEIGHTS) 以 **Research Use Only** 发布，禁止商业使用。
+本仓库的**代码**采用 [Apache License 2.0](LICENSE)；**模型权重**按 **Research Use Only**
+单独发布，其许可全文随权重包单独提供，禁止商业使用。
 
 - 上游署名、第三方组件与数据集的条款见 [`NOTICE`](NOTICE)。
 - `backend/model_def.py` 是 [wenet-e2e/WeSep](https://github.com/wenet-e2e/WeSep)
