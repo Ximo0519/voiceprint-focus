@@ -15,7 +15,8 @@
 `step.onnx`（32 ms 流式分离）。
 
 实测效果披露（评测口径、样本量、置信区间、失败模式与局限）见
-**[RESULTS.md](RESULTS.md)**。
+**[RESULTS.md](RESULTS.md)**；训练与评测方法、推理链路、交付形态的全景图见
+**[docs/methodology.svg](docs/methodology.svg)**。
 
 ## 仓库结构
 
