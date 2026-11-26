@@ -82,6 +82,16 @@ ENROLL_DIR = os.environ.get(
 # 文件式注册：注册音频上限（秒）与批量处理文件上限（秒）；声纹嵌入持久化目录
 MAX_ENROLL_FILE_S = float(os.environ.get("VF_MAX_ENROLL_FILE_S", ENROLL_DUR_MAX))
 MAX_PROCESS_S = float(os.environ.get("VF_MAX_PROCESS_S", 1800.0))
+# 上传体积上限：读之前先限长，避免恶意/误传的大文件把内存打满
+MAX_UPLOAD_BYTES = int(float(os.environ.get("VF_MAX_UPLOAD_MB", 64)) * 1024 * 1024)
+# CORS：默认只放行本机来源；外部来源用 VF_CORS_ORIGINS（逗号分隔）显式追加
+CORS_BASE_ORIGINS = ["http://127.0.0.1:8000", "http://localhost:8000"]
+
+
+def _cors_origins() -> list[str]:
+    extra = [o.strip() for o in os.environ.get("VF_CORS_ORIGINS", "").split(",")
+             if o.strip()]
+    return CORS_BASE_ORIGINS + extra
 REG_DIR = os.path.join(ENROLL_DIR, "registrations")
 # 绑核开关（默认关，行为与之前完全一致）：
 #   off/none/0 = 不绑（默认）；auto = 自动挑一颗最闲的 P 核；e = 一颗 E 核（对比用）；
@@ -162,9 +172,12 @@ def _tag_enroll(saved: dict | None, **extra) -> None:
 
 
 def _decode_audio(raw: bytes, filename: str) -> np.ndarray:
-    """上传音频 → float32 单声道 16k。优先 soundfile（wav/flac/ogg），
-    失败退回裸 float32 PCM（与 WS 上行契约同格式）。多声道取均值，
-    非 16k 用 resample_poly 重采样。解不出有效数据时抛 ValueError。"""
+    """上传音频 → float32 单声道 16k。优先 soundfile（wav/flac/ogg）。
+
+    只在显式 `.f32/.pcm/.raw` 扩展名时才退回裸 float32 PCM。前端 accept 里还有
+    mp3/m4a/aac，这些格式解码失败时若把压缩字节当 PCM 读，会输出高幅刺耳噪声，
+    必须明确报错而不是「猜」。多声道取均值，非 16k 用 resample_poly 重采样。
+    """
     if _sf is not None:
         try:
             x, sr = _sf.read(io.BytesIO(raw), dtype="float32", always_2d=True)
@@ -177,10 +190,11 @@ def _decode_audio(raw: bytes, filename: str) -> np.ndarray:
                 return x
         except Exception:                           # noqa: BLE001
             pass
-    x = np.frombuffer(raw, dtype=np.float32)
-    if x.size >= 8000:
-        return x.copy()
-    raise ValueError("无法解码音频（支持 wav/flac/ogg 或 float32 裸 PCM，%s）"
+    if (filename or "").lower().endswith((".f32", ".pcm", ".raw")):
+        x = np.frombuffer(raw, dtype=np.float32)
+        if x.size >= 8000:
+            return x.copy()
+    raise ValueError("无法解码音频（支持 wav/flac/ogg；裸 PCM 请用 .f32 扩展名，%s）"
                      % (filename or "未知文件"))
 
 
@@ -293,8 +307,8 @@ CHUNK_FRAMES = CHUNK_SAMPLES // HOP          # 4 帧
 INFER_THREADS = max(1, int(os.environ.get("VF_THREADS", 1)))  # ONNX intra_op 线程数
 
 app = FastAPI(title="Voiceprint Focus · Streaming")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
-                   allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=_cors_origins(), allow_methods=["*"],
+                   allow_headers=["*"], allow_credentials=False)
 
 STATE: dict = {"enroller": None, "load_ms": None, "ort": None,
                "campp": None, "campp_err": "",
@@ -552,7 +566,13 @@ async def enroll_file(file: UploadFile = File(...), name: str = Form("")):
     """文件式注册：上传音频 → 与录制注册完全相同的质检链
     （vad_report → enroll_qc → encode）→ 持久化声纹，返回 enroll_id。"""
     enroller: Enroller = STATE["enroller"]
-    raw = await file.read()
+    if int(file.headers.get("content-length") or 0) > MAX_UPLOAD_BYTES:
+        return JSONResponse({"ok": False, "error": "文件过大"}, status_code=413)
+    raw = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(raw) > MAX_UPLOAD_BYTES:
+        return JSONResponse({"ok": False,
+                             "error": f"文件过大（上限 {MAX_UPLOAD_BYTES // (1024 * 1024)}MB）"},
+                            status_code=413)
     if not raw:
         return JSONResponse({"ok": False, "error": "空文件"}, status_code=400)
     try:
@@ -673,7 +693,10 @@ async def process_file(file: UploadFile = File(...), enroll_id: str = Form(""),
                        out_format: str = Form("wav")):
     """较长音频文件流式处理：分块推理、分块下发。
     out_format=wav（默认，带 44 字节头可直接播放）或 f32（裸 float32 LE）。"""
-    raw = await file.read()
+    raw = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(raw) > MAX_UPLOAD_BYTES:
+        return JSONResponse({"error": f"文件过大（上限 {MAX_UPLOAD_BYTES // (1024 * 1024)}MB）"},
+                            status_code=413)
     if not raw:
         return JSONResponse({"error": "空文件"}, status_code=400)
     try:
